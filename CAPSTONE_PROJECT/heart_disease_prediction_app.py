@@ -175,5 +175,16 @@ def main():
         # Display flashing banner HTML
         st.markdown(flash_banner_html, unsafe_allow_html=True)
 
+        # Add disclaimer
+        
+        st.sidebar.markdown(
+        """
+        <div class="disclaimer">
+            <p style="font-size: 14px; color: gray; text-align: center;">Note: Predictions for male patients may be less accurate due to limited data availability during model training.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 if __name__ == '__main__':
     main()
