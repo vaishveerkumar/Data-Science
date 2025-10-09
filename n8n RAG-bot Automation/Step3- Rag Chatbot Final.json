@@ -1,0 +1,462 @@
+{
+  "name": "Rag Chatbot Final",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -592,
+        96
+      ],
+      "id": "a05100ca-4991-45a2-ba67-7619f3d1a802",
+      "name": "When chat message received",
+      "webhookId": "466813cd-4509-4665-84f1-7e2922d95eed"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a helpful assistant that answers questions based STRICTLY AND ONLY on the provided context.\n\nCRITICAL RULES:\n- Do NOT provide code examples unless they appear in the context\n- Do NOT provide implementation steps unless they are in the context\n- Do NOT add any information from your training data\n- If the context only mentions a concept briefly, say exactly that - don't elaborate beyond what's written\n- Only share what is explicitly stated in the provided articles\n\nIf the context doesn't have enough detail, respond: \"The article mentions [brief summary of what IS there], but doesn't provide implementation details. Here's the article for more information: [URL]\"\n\nAlways cite article titles and URLs.",
+              "role": "system"
+            },
+            {
+              "content": "=Context from relevant articles:\n\n{{ $('RAG Extraction(Sim Score 0.6)').item.json.result.map(item => `\nTitle: ${item.payload.title}\nAuthor: ${item.payload.author}\nTopic: ${item.payload.topic}\nContent: ${item.payload.pageContent}\nURL: ${item.payload.url}\nRelevance Score: ${item.score}\n---\n`).join('\\n\\n') }}\n\nUser Question: {{ $('When chat message received').item.json.chatInput }}\n\nPlease provide a detailed answer based on the context above and include links to the relevant articles."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        976,
+        -208
+      ],
+      "id": "0ebb117b-4626-434b-84c1-0ea7ca6d9b14",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "tgcM3AJ8JtCvBqas",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": \"{{ $json.chatInput }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        -192
+      ],
+      "id": "6e1d094d-4f10-4b86-af8b-02aa53f778ee",
+      "name": "Embed Chat Input",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kQtHnjMOwgCurdQz",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://qdrant:6333/collections/bitovi_blog/points/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vector\": {{ JSON.stringify($('Embed Chat Input').item.json.data[0].embedding) }},\n  \"limit\": 10,\n  \"score_threshold\": 0.5,\n  \"with_payload\": true,\n  \"with_vector\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        544,
+        -192
+      ],
+      "id": "20732340-6777-4a11-ab2b-379e2b7d11cb",
+      "name": "RAG Extraction(Sim Score 0.6)",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kQtHnjMOwgCurdQz",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1c17968f-14f3-47e7-b3dc-3b00e6a94cb0",
+              "leftValue": "={{ $json.result.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        752,
+        -192
+      ],
+      "id": "e9c02c22-5651-4a01-998b-109a75cb5d4b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  json: {\n    message: {\n      role: \"assistant\",\n      content: \"No related blogs found in my database for your question.\"\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -32
+      ],
+      "id": "53fb9699-2096-41ac-8cf4-74134889d13b",
+      "name": "No Documents Found"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract just the content from the message\nconst content = $json.message?.content || $json.message?.content;\n\nreturn {\n  json: {\n    output: content\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        -208
+      ],
+      "id": "b4b1c15f-4d42-4dc9-9535-42e369280a37",
+      "name": "OpenAI output"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5c908d92-913f-4411-afcd-e054f8150a69",
+              "leftValue": "={{ $json.message.content }}",
+              "rightValue": "content",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -32,
+        96
+      ],
+      "id": "846dd925-8312-4755-a135-669469cd9e56",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Analyze the user's question and determine if it's:\n1. A \"metadata query\" - asking for counts, lists, or filtering (e.g., \"how many blogs about React?\", \"list all Angular articles\")\n2. A \"content query\" - asking about information within articles (e.g., \"what are React best practices?\")\n\nRespond with ONLY one word: \"metadata\" or \"content\"",
+              "role": "system"
+            },
+            {
+              "content": "={{ $('When chat message received').item.json.chatInput }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -368,
+        96
+      ],
+      "id": "66af6cb6-9d44-446d-8dca-60cbd6308ff0",
+      "name": "Decide If question is for RAG or NOT",
+      "credentials": {
+        "openAiApi": {
+          "id": "tgcM3AJ8JtCvBqas",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:6333/collections/bitovi_blog/points/scroll",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": {\n    \"must\": [\n      {\n        \"key\": \"topic\",\n        \"match\": {\n          \"value\": \"{{ $json.message.content.trim() }}\"\n        }\n      }\n    ]\n  },\n  \"limit\": 100,\n  \"with_payload\": true,\n  \"with_vector\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        624,
+        256
+      ],
+      "id": "2cb177d1-e23a-4028-84b0-6987279f3fbc",
+      "name": "Count Topics",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kQtHnjMOwgCurdQz",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const points = $('Count Topics').item.json.result.points || [];\nconst count = points.length;\nconst topic = $('Extract Topic').item.json.message.content.trim();\n\nif (count === 0) {\n  return {\n    json: {\n      message: {\n        role: \"assistant\",\n        content: `No articles found about ${topic} in my database.`\n      }\n    }\n  };\n}\n\nconst articles = points.map(r => \n  `- [${r.payload.title}](${r.payload.url}) by ${r.payload.author}`\n).join('\\n');\n\nreturn {\n  json: {\n    message: {\n      role: \"assistant\",\n      content: `I found ${count} article(s) about ${topic}:\\n\\n${articles}`\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        256
+      ],
+      "id": "d562abd4-8eb5-4a51-bc85-237be0815984",
+      "name": "Format Output"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Extract the topic/technology name from the user's question. \n\nExamples:\n- \"how many React blogs?\" → React\n- \"list all Angular articles\" → Angular\n- \"count DevOps posts\" → DevOps\n- \"How many articles does Bitovi have about AI\"\n\nRespond with ONLY the topic name, nothing else.",
+              "role": "system"
+            },
+            {
+              "content": "={{ $('When chat message received').item.json.chatInput }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        288,
+        256
+      ],
+      "id": "7c89d42d-9439-46a7-a5bb-8dfd373a83bc",
+      "name": "Extract Topic",
+      "credentials": {
+        "openAiApi": {
+          "id": "tgcM3AJ8JtCvBqas",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn {\n  json: {\n    content: $input.first().json.message.content\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        256
+      ],
+      "id": "1b0fad55-a050-4d37-9326-d20e22547db5",
+      "name": "Final Output"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Decide If question is for RAG or NOT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Chat Input": {
+      "main": [
+        [
+          {
+            "node": "RAG Extraction(Sim Score 0.6)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG Extraction(Sim Score 0.6)": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Documents Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "OpenAI output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Embed Chat Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide If question is for RAG or NOT": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Topics": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Topic": {
+      "main": [
+        [
+          {
+            "node": "Count Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b6f6c13e-a71e-4a3b-828f-9e4cc4c77980",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3d173134151c2034f23c0750dd28c723d7e87c7df96859df0d27e0ba8cee58de"
+  },
+  "id": "EBQXM1sAAMtgL6af",
+  "tags": []
+}

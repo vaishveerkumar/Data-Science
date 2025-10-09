@@ -1,0 +1,288 @@
+{
+  "name": "Store Vectors In Qdrant",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, url, title, author, topic, summary\nFROM bitovi_articles\nWHERE summary IS NOT NULL AND summary != ''",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -720,
+        -176
+      ],
+      "id": "c759f582-c356-466d-a4a3-4c11dd1b5ed6",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "uO1nkqnluJNrFYZL",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        128,
+        -192
+      ],
+      "id": "43958688-7f76-4d94-bc59-4798fae4ad1b",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "resource": "point",
+        "operation": "upsertPoints",
+        "collectionName": {
+          "__rl": true,
+          "value": "bitovi_blog",
+          "mode": "list",
+          "cachedResultName": "bitovi_blog"
+        },
+        "points": "=[{\n  \"id\": {{ $json.id }},\n  \"vector\": {{ JSON.stringify($json.vector) }},\n  \"payload\": {{ JSON.stringify($json.payload) }}\n}]",
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-qdrant.qdrant",
+      "typeVersion": 1,
+      "position": [
+        528,
+        -192
+      ],
+      "id": "fd85c8ca-e99e-4a63-9766-4b38b4587165",
+      "name": "Upsert Points",
+      "credentials": {
+        "qdrantRestApi": {
+          "id": "kEFvpdYloTPPxXIj",
+          "name": "Qdrant account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "db644003-ba9d-4dc3-9b0c-4323834dd785",
+              "leftValue": "={{ $json.result.points.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -352,
+        -336
+      ],
+      "id": "641eedb4-2b15-42d5-987a-3f5fbd028071",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\n\nreturn {\n  json: {\n    // id: `${item.url}_summary`,\n    id: item.id,\n    // id: `${item.id}`,\n    payload: {\n      url: item.url,\n      title: item.title,\n      author: item.author,\n      topic: item.topic || \"\",\n      chunk_type: \"summary\"\n    },\n    vector: item.data[0].embedding\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -192
+      ],
+      "id": "70b0734a-e6d7-4ebf-97ee-67a24bad8423",
+      "name": "Collect Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:6333/collections/bitovi_blog/points/scroll",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": {\n    \"must\": [\n      {\n        \"key\": \"url\",\n        \"match\": {\n          \"value\": \"{{ $json.url }}\"\n        }\n      }\n    ]\n  },\n  \"limit\": 1,\n  \"with_payload\": false,\n  \"with_vector\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -528,
+        -336
+      ],
+      "id": "0260712d-c838-4aa7-a679-738c11c4a016",
+      "name": "Check if URL exists in Qdrant",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kQtHnjMOwgCurdQz",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": \"{{ `Title: ${$json.title} Topic: ${$json.topic} Author: ${$json.author} Summary: ${$json.summary}` }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -96,
+        -352
+      ],
+      "id": "3d44c784-c468-4c9d-95c3-4a127bf34715",
+      "name": "Create Embeddings",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kQtHnjMOwgCurdQz",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -944,
+        -176
+      ],
+      "id": "ed6a7c49-57a4-4e73-b450-cfe75795599c",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Check if URL exists in Qdrant",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Collect Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Points": {
+      "main": [
+        []
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Data": {
+      "main": [
+        [
+          {
+            "node": "Upsert Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if URL exists in Qdrant": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Embeddings": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8e58de3c-6ed3-43cc-b22d-226b3b2973ba",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3d173134151c2034f23c0750dd28c723d7e87c7df96859df0d27e0ba8cee58de"
+  },
+  "id": "WSmx2pSbneY6LByb",
+  "tags": []
+}

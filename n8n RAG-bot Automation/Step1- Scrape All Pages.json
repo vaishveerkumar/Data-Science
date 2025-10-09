@@ -1,0 +1,300 @@
+{
+  "name": "Scrape All Pages",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        544
+      ],
+      "id": "0acc2d0f-34f9-4877-b79b-5e640fd983c1",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5bdf0d78-eb2a-47d3-92d6-e20e088fefec",
+              "leftValue": "={{ $json.has_next_page }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        352,
+        512
+      ],
+      "id": "5c0e7e90-4fd4-4d9b-9398-251016165244",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "base_url = \"https://www.bitovi.com/blog/page/\"\ncurrent_page = 1\nall_article_urls = []\n\nreturn [{\n    \"json\": {\n        \"base_url\": base_url,\n        \"current_page\": current_page,\n        \"page_url\": f\"{base_url}{current_page}/\",\n        \"all_article_urls\": all_article_urls,\n        \"continue_crawling\": True\n    }\n}]\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        544
+      ],
+      "id": "c35a3538-ec5c-4e00-81fb-4ceb69f20e71",
+      "name": "Initilization1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "27c2df2a-96f6-4a17-94b7-e075d5fae9d4",
+              "name": "current_page",
+              "value": "={{ $json.current_page + 1 }}",
+              "type": "number"
+            },
+            {
+              "id": "d4eb4a6f-7d2d-4604-937e-bd5120cd97b7",
+              "name": "page_url",
+              "value": "={{ $json.base_url }}{{ $json.current_page + 1 }}/",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        496
+      ],
+      "id": "e37739ab-2e44-41a5-8d3f-a3c10f814a7b",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -128,
+        512
+      ],
+      "id": "d14ce65b-a9b7-4130-80ba-9f37e6da2a65",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.page_url }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -128,
+        720
+      ],
+      "id": "a7aa9bca-c390-457c-b6ba-1b3063ecd652",
+      "name": "Fetch Blog Page1"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import re\nfrom urllib.parse import urljoin\nfrom bs4 import BeautifulSoup\n\n# --- Setup ---\ndata = items[0]['json']\nhtml_content = data['data']\nbase_url = data.get('base_url', 'https://www.bitovi.com/')\n\nall_articles = data.get('all_articles', [])\n\n# Parse the HTML from the current page\nsoup = BeautifulSoup(html_content, 'html.parser')\n\n# --- Main Scraping Logic ---\narticles_this_page = []\n\narticle_cards = soup.select('div.bitovi-blog-home-tile')\n\nfor card in article_cards:\n    #author's name\n    author_element = card.select_one('div.blog-tile-author-info')\n    author_name = author_element.get_text(strip=True) if author_element else None\n\n    #topic link and name\n    topic_element = card.select_one('a[href*=\"/blog/topic/\"]')\n    topic_name = topic_element.get_text(strip=True) if topic_element else None\n    \n    # article link \n    article_link_element = card.select_one('div.blog-tile-details a')\n    article_link = urljoin(base_url, article_link_element['href']) if article_link_element else None\n    \n    title_element = card.select_one('div[class*=\"hs-blog-post-wrapper\"] p')\n    title = title_element.get_text(strip=True) if title_element else None\n    #  summary\n    summary_element = card.select_one('div.blog-content-summary p')\n    summary = summary_element.get_text(strip=True) if summary_element else None\n   \n\n    if article_link:\n        article_data = {\n            \"url\": article_link,\n            \"title\": title,\n            \"author\": author_name,\n            \"topic\": topic_name,\n            \"summary\": summary\n        }\n        articles_this_page.append(article_data)\n\nnew_articles = [article for article in articles_this_page if article not in all_articles]\nall_articles.extend(new_articles)\n\n# --- Pagination Logic ---\ncurrent_page = data.get('current_page', 1)\npage_pattern = re.compile(r'/blog/page/(\\d+)')\nmatches = page_pattern.findall(html_content)\npage_numbers = sorted(set(int(x) for x in matches)) if matches else []\nhas_next = any(n > current_page for n in page_numbers)\n\n# --- Return Structure ---\nreturn [{\n    \"json\": {\n        \"base_url\": base_url,\n        \"current_page\": current_page,\n        \"all_articles\": all_articles,\n        \"articles_this_page\": new_articles,\n        \"has_next_page\": has_next,\n        \"detected_page_numbers\": page_numbers\n    }\n}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        512
+      ],
+      "id": "6e7e4e30-c00a-4b7a-98a8-fe014fb1bd9f",
+      "name": "Fetch Article Links from Each Page1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": " articles_this_page",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        384,
+        304
+      ],
+      "id": "3e9bcf38-060b-4885-989b-2515c11de92e",
+      "name": "Split Out1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bitovi_articles (url, title, author, topic, summary)\nVALUES (\n  '{{ $json.url || \"\" }}',\n  '{{ ($json.title || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.author || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.topic || \"\").replace(/'/g, \"''\") }}',\n  '{{ ($json.summary || \"\").replace(/'/g, \"''\") }}'\n)\nON CONFLICT (url) DO NOTHING;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        592,
+        304
+      ],
+      "id": "17f0e395-7b5d-4d50-9726-cbc506de669f",
+      "name": "Insert Into Postgres1",
+      "credentials": {
+        "postgres": {
+          "id": "uO1nkqnluJNrFYZL",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Initilization1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Initilization1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Blog Page1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Blog Page1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Article Links from Each Page1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Blog Page1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Article Links from Each Page1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Insert Into Postgres1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2db64bf8-4620-4d90-9a36-c9d97cdb741c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3d173134151c2034f23c0750dd28c723d7e87c7df96859df0d27e0ba8cee58de"
+  },
+  "id": "KS1mp5x9yd2BKjiv",
+  "tags": []
+}
